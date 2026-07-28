@@ -1,167 +1,52 @@
-import { chromium } from "playwright";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+# Railwatch KTMB checker
 
-const required = [
-  "RAILWATCH_API_URL",
-  "RAILWATCH_CHECKER_SECRET",
-  "OAI_SITES_AUTHORIZATION",
-  "KTMB_STORAGE_STATE_B64",
-];
+This public repository contains only the checker code. KTMB session data and
+Railwatch access credentials must be stored as encrypted GitHub Actions
+secrets and must never be committed.
 
-for (const name of required) {
-  if (!process.env[name]) throw new Error(`Missing required secret: ${name}`);
-}
+## Schedule
 
-const API_URL = process.env.RAILWATCH_API_URL.replace(/\/$/, "");
-const apiHeaders = {
-  authorization: `Bearer ${process.env.RAILWATCH_CHECKER_SECRET}`,
-  "content-type": "application/json",
-  "OAI-Sites-Authorization": `Bearer ${process.env.OAI_SITES_AUTHORIZATION}`,
-};
+The workflow runs every 15 minutes (`*/15 * * * *`) and can also be started
+manually from the Actions page. GitHub may start scheduled jobs a few minutes
+late during periods of high platform load.
 
-const tempDir = await mkdtemp(join(tmpdir(), "railwatch-"));
-const storageStatePath = join(tempDir, "ktmb-storage-state.json");
-await writeFile(
-  storageStatePath,
-  Buffer.from(process.env.KTMB_STORAGE_STATE_B64, "base64"),
-  { mode: 0o600 },
-);
+## Seat rules
 
-const response = await fetch(`${API_URL}/api/checker`, {
-  headers: apiHeaders,
-});
-if (!response.ok) throw new Error(`Monitor API returned ${response.status}`);
-const { monitors = [] } = await response.json();
+An alert is eligible only when the authenticated KTMB seat map contains a
+selectable Standard seat. The checker excludes Business/VIP seat types,
+`OKU` accessible-reserved seats, and every seat marked reserved, blocked or
+sold.
 
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({
-  storageState: storageStatePath,
-  locale: "en-MY",
-  timezoneId: "Asia/Kuala_Lumpur",
-});
+## Required GitHub Actions secrets
 
-try {
-  for (const monitor of monitors) {
-    let result;
-    try {
-      result = await checkMonitor(context, monitor);
-    } catch (error) {
-      result = {
-        monitorId: monitor.id,
-        availableSeats: 0,
-        matchingTrains: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+- `RAILWATCH_API_URL`
+- `RAILWATCH_CHECKER_SECRET`
+- `OAI_SITES_AUTHORIZATION`
+- `KTMB_STORAGE_STATE_B64`
 
-    const update = await fetch(`${API_URL}/api/checker`, {
-      method: "POST",
-      headers: apiHeaders,
-      body: JSON.stringify(result),
-    });
-    if (!update.ok) {
-      throw new Error(
-        `Result API returned ${update.status} for monitor ${monitor.id}`,
-      );
-    }
-  }
-} finally {
-  await context.close();
-  await browser.close();
-}
+Open **Settings → Secrets and variables → Actions → New repository secret**.
+Never place these values in repository files, issues, pull requests or logs.
 
-async function checkMonitor(context, monitor) {
-  const page = await context.newPage();
-  try {
-    await page.goto("https://online.ktmb.com.my/", {
-      waitUntil: "domcontentloaded",
-      timeout: 45_000,
-    });
+## Capture the KTMB session on Windows
 
-    const accountButton = page.locator("nav button").filter({
-      hasText: /[A-Z]{2,}\s+[A-Z]{2,}/,
-    });
-    if ((await accountButton.count()) === 0) {
-      throw new Error("KTMB session expired; reconnect the stored session.");
-    }
+1. Install Node.js 22 LTS if it is not already installed.
+2. Download this repository as a ZIP and extract it.
+3. Open PowerShell in the extracted `runner` folder.
+4. Run `npm ci`.
+5. Run `npm run capture-session`.
+6. Sign in only in the official KTMB browser window that opens.
+7. Return to PowerShell and press Enter after the account page is visible.
+8. Create the GitHub secret `KTMB_STORAGE_STATE_B64` and paste from the
+   clipboard.
 
-    await page.selectOption("#FromStationId", monitor.originId);
-    await page.waitForSelector(
-      `#ToStationId option[value="${monitor.destinationId}"]`,
-      { timeout: 15_000 },
-    );
-    await page.selectOption("#ToStationId", monitor.destinationId);
+The script uses the installed Microsoft Edge or Google Chrome. It does not ask
+for or store the KTMB password. If clipboard access is unavailable, it writes a
+local `.railwatch-session-secret.txt` fallback; delete that file permanently
+immediately after creating the GitHub secret.
 
-    const displayDate = new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      timeZone: "Asia/Kuala_Lumpur",
-    }).format(new Date(`${monitor.travelDate}T12:00:00+08:00`));
+## Run a test
 
-    await page.evaluate((value) => {
-      const input = document.querySelector("#OnwardDate");
-      if (!(input instanceof HTMLInputElement)) {
-        throw new Error("KTMB departure field was not found.");
-      }
-      input.value = value;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, displayDate);
-
-    await Promise.all([
-      page.waitForURL(/\/Trip(?:$|\?)/, { timeout: 45_000 }),
-      page.locator("#btnSubmit").click(),
-    ]);
-    await page.waitForSelector("tr", { timeout: 30_000 });
-
-    const rows = page.locator("tbody tr").filter({ hasText: "Pick Seats" });
-    const rowCount = await rows.count();
-    const matchingTrains = [];
-
-    for (let index = 0; index < rowCount; index += 1) {
-      const row = rows.nth(index);
-      const cells = await row.locator("td").allTextContents();
-      const service = cells[0]?.trim() ?? "";
-      const departure = cells[1]?.trim() ?? "";
-      if (!inWindow(departure, monitor.startTime, monitor.endTime)) continue;
-
-      await row.getByText("Pick Seats", { exact: true }).click();
-      await page.waitForSelector("#seatSelect.show img", { timeout: 30_000 });
-
-      const ordinarySeats = await page
-        .locator("#seatSelect img.selectable-icon[data-seat-data]")
-        .evaluateAll((images) =>
-          images.filter((image) => {
-            const src = image.getAttribute("src") ?? "";
-            const id = new URL(src, location.origin).searchParams.get("id") ?? "";
-            return /^(Stan|Std)/i.test(id) && !/OKU/i.test(id);
-          }).length,
-        );
-
-      if (ordinarySeats > 0) {
-        matchingTrains.push({ service, departure, ordinarySeats });
-      }
-
-      await page.locator("#seatSelect button.close").click();
-      await page.waitForSelector("#seatSelect", { state: "hidden" });
-    }
-
-    return {
-      monitorId: monitor.id,
-      availableSeats: matchingTrains.reduce(
-        (sum, train) => sum + train.ordinarySeats,
-        0,
-      ),
-      matchingTrains,
-    };
-  } finally {
-    await page.close();
-  }
-}
-
-function inWindow(value, start, end) {
-  return /^\d{2}:\d{2}$/.test(value) && value >= start && value <= end;
-}
+After all four secrets exist, open **Actions → Railwatch KTMB checker → Run
+workflow**. A successful run fetches active Railwatch monitors, opens the
+authenticated KTMB timetable and seat map, counts only qualifying ordinary
+seats, and posts the result back to Railwatch.

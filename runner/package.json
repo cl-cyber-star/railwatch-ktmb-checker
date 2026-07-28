@@ -1,0 +1,12 @@
+{
+  "name": "railwatch-ktmb-checker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture-session": "node capture-session.mjs",
+    "check": "node checker.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.54.1"
+  }
+}
