@@ -1,0 +1,8 @@
+node_modules/
+runner/node_modules/
+.env*
+*.log
+.railwatch-session-secret.txt
+*storage-state*.json
+playwright-report/
+test-results/
