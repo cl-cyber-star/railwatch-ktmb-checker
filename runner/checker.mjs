@@ -119,9 +119,9 @@ console.log(
 
     await page.selectOption("#FromStationId", monitor.originId);
     await page.waitForSelector(
-      `#ToStationId option[value="${monitor.destinationId}"]`,
-      { timeout: 15_000 },
-    );
+  `#ToStationId option[value="${monitor.destinationId}"]`,
+  { state: "attached", timeout: 15_000 },
+);
     await page.selectOption("#ToStationId", monitor.destinationId);
 
     const displayDate = new Intl.DateTimeFormat("en-GB", {
