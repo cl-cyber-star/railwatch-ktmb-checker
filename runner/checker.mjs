@@ -34,7 +34,9 @@ const response = await fetch(`${API_URL}/api/checker`, {
 });
 if (!response.ok) throw new Error(`Monitor API returned ${response.status}`);
 const { monitors = [] } = await response.json();
-
+if (!Array.isArray(monitors) || monitors.length === 0) {
+  throw new Error("Railwatch API returned no active monitors.");
+}
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   storageState: storageStatePath,
@@ -42,18 +44,31 @@ const context = await browser.newContext({
   timezoneId: "Asia/Kuala_Lumpur",
 });
 
+const failures = [];
+
 try {
   for (const monitor of monitors) {
     let result;
+
     try {
       result = await checkMonitor(context, monitor);
+
+      console.log(
+        `Monitor ${monitor.id}: ${result.availableSeats} ordinary seat(s) found across ${result.matchingTrains.length} matching train(s).`,
+      );
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+
       result = {
         monitorId: monitor.id,
         availableSeats: 0,
         matchingTrains: [],
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       };
+
+      failures.push(`Monitor ${monitor.id}: ${message}`);
+      console.error(`Monitor ${monitor.id}: ${message}`);
     }
 
     const update = await fetch(`${API_URL}/api/checker`, {
@@ -61,11 +76,18 @@ try {
       headers: apiHeaders,
       body: JSON.stringify(result),
     });
+
     if (!update.ok) {
       throw new Error(
         `Result API returned ${update.status} for monitor ${monitor.id}`,
       );
     }
+
+    console.log(`Monitor ${monitor.id}: result accepted by Railwatch backend.`);
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`Railwatch check failed: ${failures.join(" | ")}`);
   }
 } finally {
   await context.close();
