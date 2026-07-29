@@ -102,12 +102,20 @@ async function checkMonitor(context, monitor) {
       timeout: 45_000,
     });
 
-    const accountButton = page.locator("nav button").filter({
-      hasText: /[A-Z]{2,}\s+[A-Z]{2,}/,
-    });
-    if ((await accountButton.count()) === 0) {
-      throw new Error("KTMB session expired; reconnect the stored session.");
-    }
+    const loginPage = /\/Account\/Login(?:$|[?#])/i.test(page.url());
+const visibleLoginLink = await page
+  .locator('a[href*="/Account/Login"]:visible')
+  .count();
+
+if (loginPage || visibleLoginLink > 0) {
+  throw new Error(
+    "KTMB redirected to login; the stored session was rejected.",
+  );
+}
+
+console.log(
+  `Monitor ${monitor.id}: KTMB homepage session check passed.`,
+);
 
     await page.selectOption("#FromStationId", monitor.originId);
     await page.waitForSelector(
