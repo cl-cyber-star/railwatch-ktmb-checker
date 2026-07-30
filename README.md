@@ -1,13 +1,17 @@
-# Railwatch KTMB checker
+# Railwatch KTMB checker and Streamlit dashboard
 
 Railwatch's Python checker is a scheduled browser worker. It retrieves active
 journey monitors from the hosted Railwatch application, checks authenticated
 KTMB seat maps, counts qualifying Standard seats, and posts results back to the
 existing Railwatch API.
 
-This repository does **not** contain the hosted Railwatch PWA, its user
-accounts, push-notification service, or database. Those components remain
-unchanged and externally deployed.
+The repository now also contains a Streamlit operator dashboard. It reads the
+same active-monitor API, displays responsive journey cards and non-sensitive
+session health, and can run a manually confirmed checker cycle.
+
+The existing hosted Railwatch PWA, user accounts, push-notification service,
+and database remain externally deployed. Streamlit does not replace the PWA's
+service-worker Web Push or installable mobile experience.
 
 ## Python migration
 
@@ -19,15 +23,17 @@ src/railwatch/
 ├── capture.py   # manual KTMB session capture
 ├── cli.py       # check, capture-session, and doctor commands
 ├── config.py    # validated environment configuration
+├── dashboard.py # Streamlit data access and safe card rendering
 ├── ktmb.py      # Playwright automation and seat rules
 ├── models.py    # typed API/domain models
 ├── service.py   # checker orchestration and session rotation
 └── session.py   # storage-state validation and encoding
 ```
 
-FastAPI, Flask, and Django are intentionally not used: this repository is a
-short-lived scheduled worker, not an HTTP server. The hosted application
-continues to provide the API and web interface.
+`streamlit_app.py` is the presentation entry point. FastAPI, Flask, and Django
+are intentionally not added because the hosted application already provides
+the API; introducing another backend would duplicate authentication and data
+ownership.
 
 ## Preserved behavior
 
@@ -110,6 +116,18 @@ Copy `.env.example` to `.env` only for local development. `.env` and every
 storage-state file are ignored by Git. Never paste secrets into source files,
 issues, commits, screenshots, or workflow logs.
 
+For Streamlit Community Cloud or another Streamlit host, configure the same
+names in the deployment's secret manager. For local Streamlit development,
+environment variables are preferred. `.streamlit/secrets.toml` is also
+supported and ignored by Git:
+
+```toml
+RAILWATCH_API_URL = "https://your-railwatch-site.example"
+RAILWATCH_CHECKER_SECRET = "replace-me"
+OAI_SITES_AUTHORIZATION = "replace-me"
+KTMB_STORAGE_STATE_B64 = "replace-me"
+```
+
 ## Capture a KTMB session
 
 Activate the virtual environment, then run:
@@ -152,6 +170,36 @@ python -m railwatch check
 
 This performs real requests to Railwatch and KTMB and posts monitor results.
 
+## Run the Streamlit frontend
+
+Install the project and frontend dependencies:
+
+```powershell
+python -m pip install -r requirements-frontend.txt
+python -m pip install --no-deps -e .
+```
+
+Start the dashboard:
+
+```powershell
+python -m streamlit run streamlit_app.py
+```
+
+Open `http://localhost:8501`. The dashboard:
+
+- lists and filters active journey monitors;
+- uses content-driven cards that wrap on narrow desktop and mobile screens;
+- shows the nearest travel date and session source/version without displaying
+  cookie or secret values;
+- refreshes API data on demand; and
+- provides a guarded operator action to run all active monitors immediately.
+
+The Streamlit server must be treated as an authenticated operator surface
+because it holds the checker credentials. Do not publish it as an unrestricted
+public app. User sign-in, monitor deletion, and per-device Web Push remain in
+the existing hosted PWA because the checker API does not expose those public
+account operations.
+
 ## Database migration
 
 None is required. The repository contains no database schema, and the Python
@@ -169,6 +217,10 @@ python -m railwatch check
 
 Keep all four required values under **Settings → Secrets and variables →
 Actions**. No workflow secret names changed during the migration.
+
+The scheduled worker intentionally installs `requirements.txt`, not
+`requirements-frontend.txt`, so Streamlit is not added to each five-minute
+checker run.
 
 Push this migration on `feature/python-migration` and open a pull request into
 `main`. The new Python CI workflow runs Ruff, mypy, and pytest on the branch and

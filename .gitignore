@@ -18,3 +18,4 @@ htmlcov/
 *storage-state*.json
 playwright-report/
 test-results/
+.streamlit/secrets.toml
