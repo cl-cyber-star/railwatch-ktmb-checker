@@ -7,6 +7,7 @@ from types import TracebackType
 from typing import Self
 
 import httpx
+from playwright.async_api import StorageState
 from pydantic import ValidationError
 
 from railwatch.config import Settings
@@ -15,11 +16,18 @@ from railwatch.models import (
     CheckResult,
     Monitor,
     MonitorEnvelope,
-    SessionResponse,
+    SessionEnvelope,
     SessionSaveRequest,
     SessionSaveResponse,
 )
-from railwatch.session import SessionMaterial, decode_storage_state
+from railwatch.session import (
+    SessionMaterial,
+    decode_storage_state,
+    decrypt_storage_state,
+    encode_storage_state,
+    encrypt_storage_state,
+    storage_state_fingerprint,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,11 +80,13 @@ class RailwatchApi:
     async def load_session(self, fallback_encoded: str) -> SessionMaterial:
         """Load the latest server session, with the secret as a recovery seed."""
         fallback_state = decode_storage_state(fallback_encoded)
+        fallback_fingerprint = storage_state_fingerprint(fallback_state)
         fallback = SessionMaterial(
             storage_state=fallback_state,
             encoded=fallback_encoded,
             version=None,
             source="secret",
+            bootstrap_fingerprint=fallback_fingerprint,
         )
 
         if not self._session_store_available:
@@ -92,33 +102,55 @@ class RailwatchApi:
         self._raise_for_status(response, "Session API")
 
         try:
-            session = SessionResponse.model_validate(response.json())
-            state = decode_storage_state(session.storage_state_b64)
+            envelope = SessionEnvelope.model_validate(response.json())
         except (ValueError, ValidationError) as exc:
             raise ApiError("Session API returned an invalid response.") from exc
 
+        session = envelope.session
+        if session is None:
+            return fallback
+        if session.bootstrap_fingerprint is None:
+            raise ApiError(
+                "Stored KTMB session metadata is incomplete. Recapture the session once."
+            )
+        if session.bootstrap_fingerprint != fallback_fingerprint:
+            LOGGER.info("A newly captured KTMB session will replace the stored state.")
+            return SessionMaterial(
+                storage_state=fallback_state,
+                encoded=fallback_encoded,
+                version=session.version,
+                source="secret",
+                bootstrap_fingerprint=fallback_fingerprint,
+            )
+
+        checker_secret = self._settings.checker_secret.get_secret_value()
+        state = decrypt_storage_state(session.encrypted_state, checker_secret)
         return SessionMaterial(
             storage_state=state,
-            encoded=session.storage_state_b64,
+            encoded=encode_storage_state(state),
             version=session.version,
             source="server",
+            bootstrap_fingerprint=session.bootstrap_fingerprint,
         )
 
     async def save_session(
         self,
-        encoded: str,
+        storage_state: StorageState,
         *,
         expected_version: int | None,
+        bootstrap_fingerprint: str,
     ) -> int | None:
         """Persist refreshed cookies using optimistic concurrency."""
         if not self._session_store_available:
             return None
 
+        checker_secret = self._settings.checker_secret.get_secret_value()
         payload = SessionSaveRequest(
-            storageStateB64=encoded,
+            encryptedState=encrypt_storage_state(storage_state, checker_secret),
+            bootstrapFingerprint=bootstrap_fingerprint,
             expectedVersion=expected_version,
         ).model_dump(by_alias=True, exclude_none=True)
-        response = await self._client.post(
+        response = await self._client.put(
             self._settings.session_api_path,
             json=payload,
         )

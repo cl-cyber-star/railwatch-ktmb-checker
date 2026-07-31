@@ -9,6 +9,7 @@ description = "Python browser worker for Railwatch KTMB seat availability monito
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "cryptography==46.0.0",
   "httpx==0.28.1",
   "playwright==1.55.0",
   "pydantic==2.13.4",

@@ -111,6 +111,7 @@ async def test_snapshot_sorts_monitors_and_exposes_only_session_metadata(
                 encoded=seed,
                 version=8,
                 source="server",
+                bootstrap_fingerprint="0" * 64,
             )
 
     monkeypatch.setattr("railwatch.dashboard.RailwatchApi", FakeApi)

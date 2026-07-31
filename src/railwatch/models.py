@@ -78,15 +78,29 @@ class CheckResult(ApiModel):
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
 
 
-class SessionResponse(ApiModel):
-    storage_state_b64: str = Field(alias="storageStateB64", min_length=1)
-    version: int = Field(ge=0)
+class SessionRecord(ApiModel):
+    encrypted_state: str = Field(alias="encryptedState", min_length=100)
+    bootstrap_fingerprint: str | None = Field(
+        alias="bootstrapFingerprint",
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    version: int = Field(ge=1)
+    updated_at: str | None = Field(alias="updatedAt", default=None)
+
+
+class SessionEnvelope(ApiModel):
+    session: SessionRecord | None = None
 
 
 class SessionSaveRequest(ApiModel):
-    storage_state_b64: str = Field(alias="storageStateB64", min_length=1)
-    expected_version: int | None = Field(alias="expectedVersion", default=None, ge=0)
+    encrypted_state: str = Field(alias="encryptedState", min_length=100)
+    bootstrap_fingerprint: str = Field(
+        alias="bootstrapFingerprint",
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    expected_version: int | None = Field(alias="expectedVersion", default=None, ge=1)
 
 
 class SessionSaveResponse(ApiModel):
-    version: int = Field(ge=0)
+    version: int = Field(ge=1)

@@ -41,6 +41,7 @@ async def test_rejected_server_session_uses_new_secret_seed(monkeypatch: Any) ->
         encoded=encode_storage_state(cast(Any, server_state)),
         version=4,
         source="server",
+        bootstrap_fingerprint="0" * 64,
     )
     fallback_encoded = encode_storage_state(cast(Any, fallback_state))
     calls = 0

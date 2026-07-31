@@ -62,10 +62,13 @@ overwrite a newer session.
 
 Expected session API contract:
 
-- `GET /api/checker/session` → `{"storageStateB64": "...", "version": 1}`
-- `POST /api/checker/session` with
-  `{"storageStateB64": "...", "expectedVersion": 1}` →
-  `{"version": 2}`
+- `GET /api/checker/session` →
+  `{"session":{"encryptedState":"...","bootstrapFingerprint":"...","version":1}}`
+- `PUT /api/checker/session` with
+  `{"encryptedState":"...","bootstrapFingerprint":"...","expectedVersion":1}` →
+  `{"ok":true,"version":2}`
+- Session state uses the deployed AES-256-GCM envelope and remains encrypted in
+  the database.
 - `204` or `404` from GET disables rotation for that run and uses the GitHub
   secret seed.
 

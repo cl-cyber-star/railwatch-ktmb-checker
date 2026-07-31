@@ -11,7 +11,11 @@ from railwatch.config import Settings
 from railwatch.errors import CheckerFailure, SessionRejectedError
 from railwatch.ktmb import check_monitor, preflight_session
 from railwatch.models import CheckResult, Monitor
-from railwatch.session import SessionMaterial, decode_storage_state, encode_storage_state
+from railwatch.session import (
+    SessionMaterial,
+    decode_storage_state,
+    storage_state_fingerprint,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,10 +42,11 @@ async def run_checker(settings: Settings) -> None:
                 )
                 try:
                     failures = await _process_monitors(api, context, monitors)
-                    refreshed = encode_storage_state(await context.storage_state())
+                    refreshed = await context.storage_state()
                     version = await api.save_session(
                         refreshed,
                         expected_version=selected.version,
+                        bootstrap_fingerprint=selected.bootstrap_fingerprint,
                     )
                     if version is not None:
                         LOGGER.info("KTMB session refreshed and saved as version %s.", version)
@@ -77,6 +82,7 @@ async def _open_authenticated_context(
         encoded=fallback_encoded,
         version=selected.version,
         source="secret",
+        bootstrap_fingerprint=storage_state_fingerprint(fallback_state),
     )
     context = await _new_context(browser, fallback.storage_state)
     try:
