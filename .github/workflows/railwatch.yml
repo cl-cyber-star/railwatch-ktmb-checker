@@ -1,9 +1,10 @@
 name: Railwatch KTMB Checker
+run-name: Railwatch check (${{ github.event_name }})
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "2-59/5 * * * *"
 
 permissions:
   contents: read
@@ -24,6 +25,18 @@ jobs:
       KTMB_STORAGE_STATE_B64: ${{ secrets.KTMB_STORAGE_STATE_B64 }}
 
     steps:
+      - name: Log workflow trigger
+        env:
+          RAILWATCH_TRIGGER: ${{ github.event_name }}
+          RAILWATCH_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          echo "Workflow trigger: ${RAILWATCH_TRIGGER}"
+          if [ -n "${RAILWATCH_SCHEDULE}" ]; then
+            echo "Cron schedule: ${RAILWATCH_SCHEDULE}"
+          else
+            echo "Cron schedule: manual dispatch"
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v4
 
