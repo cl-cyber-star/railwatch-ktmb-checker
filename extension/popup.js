@@ -30,12 +30,29 @@ connectButton.addEventListener("click", async () => {
       throw new Error("Sign in on the official KTMB tab before connecting.");
     }
 
-    const [cookies, localStorage] = await Promise.all([
-      chrome.cookies.getAll({ domain: "online.ktmb.com.my" }),
+    const [authenticated, storeId, localStorage] = await Promise.all([
+      verifyKtmbLogin(tab.id),
+      findCookieStore(tab.id),
       readKtmbLocalStorage(tab.id),
     ]);
+    if (!authenticated) {
+      throw new Error(
+        "KTMB is not signed in on this tab. Complete login, wait for the homepage, and retry.",
+      );
+    }
+
+    const cookieQuery = { domain: "ktmb.com.my" };
+    if (storeId) cookieQuery.storeId = storeId;
+    const now = Date.now() / 1000;
+    const cookies = (await chrome.cookies.getAll(cookieQuery)).filter(
+      (cookie) =>
+        isKtmbDomain(cookie.domain) &&
+        (!cookie.expirationDate || cookie.expirationDate > now),
+    );
     if (cookies.length === 0) {
-      throw new Error("No KTMB session was found. Complete KTMB login and retry.");
+      throw new Error(
+        "No authenticated KTMB cookies were found in this browser profile. Complete KTMB login and retry.",
+      );
     }
 
     const storageState = {
@@ -75,6 +92,40 @@ connectButton.addEventListener("click", async () => {
 async function findKtmbTab() {
   const tabs = await chrome.tabs.query({ url: `${KTMB_ORIGIN}/*` });
   return tabs.find((tab) => tab.active) ?? tabs.at(-1);
+}
+
+async function verifyKtmbLogin(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const loginPage = /\/Account\/Login(?:$|[?#])/i.test(window.location.href);
+      const visibleLoginLink = Array.from(
+        document.querySelectorAll('a[href*="/Account/Login"]'),
+      ).some((element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || "1") > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      });
+      return !loginPage && !visibleLoginLink;
+    },
+  });
+  return results[0]?.result === true;
+}
+
+async function findCookieStore(tabId) {
+  const stores = await chrome.cookies.getAllCookieStores();
+  return stores.find((store) => store.tabIds.includes(tabId))?.id;
+}
+
+function isKtmbDomain(value) {
+  const domain = String(value || "").toLowerCase().replace(/^\./, "");
+  return domain === "ktmb.com.my" || domain.endsWith(".ktmb.com.my");
 }
 
 async function readKtmbLocalStorage(tabId) {
