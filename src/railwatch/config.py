@@ -19,14 +19,13 @@ class Settings(BaseSettings):
     api_url: AnyHttpUrl = Field(alias="RAILWATCH_API_URL")
     checker_secret: SecretStr = Field(alias="RAILWATCH_CHECKER_SECRET")
     sites_authorization: SecretStr = Field(alias="OAI_SITES_AUTHORIZATION")
-    ktmb_storage_state_b64: SecretStr = Field(alias="KTMB_STORAGE_STATE_B64")
+    ktmb_storage_state_b64: SecretStr | None = Field(
+        default=None,
+        alias="KTMB_STORAGE_STATE_B64",
+    )
     session_api_path: str = Field(
         default="/api/checker/session",
         alias="RAILWATCH_SESSION_API_PATH",
-    )
-    session_rotation_enabled: bool = Field(
-        default=True,
-        alias="KTMB_SESSION_ROTATION_ENABLED",
     )
     http_timeout_seconds: float = Field(
         default=30.0,

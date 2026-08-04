@@ -10,6 +10,7 @@ def test_monitor_accepts_existing_camel_case_payload() -> None:
     monitor = Monitor.model_validate(
         {
             "id": 42,
+            "ownerEmail": "owner@example.com",
             "originId": "100",
             "destinationId": "200",
             "travelDate": "2026-08-01",
@@ -28,6 +29,7 @@ def test_monitor_rejects_invalid_times(value: str) -> None:
         Monitor.model_validate(
             {
                 "id": "monitor",
+                "ownerEmail": "owner@example.com",
                 "originId": "100",
                 "destinationId": "200",
                 "travelDate": "2026-08-01",
@@ -42,6 +44,7 @@ def test_monitor_rejects_overnight_window() -> None:
         Monitor.model_validate(
             {
                 "id": "monitor",
+                "ownerEmail": "owner@example.com",
                 "originId": "100",
                 "destinationId": "200",
                 "travelDate": "2026-08-01",

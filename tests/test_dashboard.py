@@ -11,7 +11,7 @@ from railwatch.dashboard import (
     next_travel_date,
 )
 from railwatch.models import Monitor
-from railwatch.session import SessionMaterial, encode_storage_state
+from railwatch.session import SessionMaterial
 
 
 @pytest.fixture
@@ -19,6 +19,7 @@ def monitors() -> tuple[Monitor, ...]:
     return (
         Monitor(
             id="northbound",
+            ownerEmail="north@example.com",
             originId="SEGAMAT",
             destinationId="KL SENTRAL",
             travelDate=date(2026, 8, 4),
@@ -27,6 +28,7 @@ def monitors() -> tuple[Monitor, ...]:
         ),
         Monitor(
             id="southbound",
+            ownerEmail="south@example.com",
             originId="GEMAS",
             destinationId="JB SENTRAL",
             travelDate=date(2026, 8, 2),
@@ -61,6 +63,7 @@ def test_next_travel_date_ignores_past_dates(
 def test_monitor_card_escapes_api_values() -> None:
     monitor = Monitor(
         id="<script>",
+        ownerEmail="owner@example.com",
         originId="<b>SEGAMAT</b>",
         destinationId="KL & SENTRAL",
         travelDate=date(2026, 8, 4),
@@ -82,13 +85,11 @@ async def test_snapshot_sorts_monitors_and_exposes_only_session_metadata(
     monkeypatch: Any,
     monitors: tuple[Monitor, ...],
 ) -> None:
-    seed = encode_storage_state({"cookies": [], "origins": []})
     settings = Settings.model_validate(
         {
             "RAILWATCH_API_URL": "https://railwatch.example",
             "RAILWATCH_CHECKER_SECRET": "checker-secret",
             "OAI_SITES_AUTHORIZATION": "sites-secret",
-            "KTMB_STORAGE_STATE_B64": seed,
         }
     )
 
@@ -105,19 +106,28 @@ async def test_snapshot_sorts_monitors_and_exposes_only_session_metadata(
         async def get_monitors(self) -> list[Monitor]:
             return list(monitors)
 
-        async def load_session(self, _: str) -> SessionMaterial:
-            return SessionMaterial(
-                storage_state={"cookies": [], "origins": []},
-                encoded=seed,
-                version=8,
-                source="server",
-                bootstrap_fingerprint="0" * 64,
-            )
+        async def get_sessions(self, _: set[str]) -> dict[str, SessionMaterial]:
+            return {
+                "north@example.com": SessionMaterial(
+                    owner_email="north@example.com",
+                    storage_state={"cookies": [], "origins": []},
+                    version=8,
+                    status="connected",
+                    bootstrap_fingerprint="0" * 64,
+                ),
+                "south@example.com": SessionMaterial(
+                    owner_email="south@example.com",
+                    storage_state={"cookies": [], "origins": []},
+                    version=3,
+                    status="reauth_required",
+                    bootstrap_fingerprint="1" * 64,
+                ),
+            }
 
     monkeypatch.setattr("railwatch.dashboard.RailwatchApi", FakeApi)
 
     snapshot = await load_dashboard_snapshot(settings)
 
     assert [monitor.id for monitor in snapshot.monitors] == ["southbound", "northbound"]
-    assert snapshot.session_source == "server"
-    assert snapshot.session_version == 8
+    assert snapshot.connected_accounts == 1
+    assert snapshot.reconnect_accounts == 1

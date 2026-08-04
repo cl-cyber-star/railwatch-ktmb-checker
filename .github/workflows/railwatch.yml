@@ -14,13 +14,15 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.55.0-noble
+      options: --ipc=host
 
     env:
       RAILWATCH_API_URL: ${{ secrets.RAILWATCH_API_URL }}
       RAILWATCH_CHECKER_SECRET: ${{ secrets.RAILWATCH_CHECKER_SECRET }}
       OAI_SITES_AUTHORIZATION: ${{ secrets.OAI_SITES_AUTHORIZATION }}
-      KTMB_STORAGE_STATE_B64: ${{ secrets.KTMB_STORAGE_STATE_B64 }}
 
     steps:
       - name: Log workflow trigger
@@ -38,21 +40,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-worker.txt
-
       - name: Install checker
         run: |
-          python -m pip install --upgrade pip
           python -m pip install -r requirements-worker.txt
           python -m pip install --no-deps .
-
-      - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
 
       - name: Validate configuration
         run: python -m railwatch doctor

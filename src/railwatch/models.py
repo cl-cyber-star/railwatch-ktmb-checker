@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -37,6 +38,7 @@ class ApiModel(BaseModel):
 
 class Monitor(ApiModel):
     id: int | str
+    owner_email: str = Field(alias="ownerEmail", min_length=3, max_length=320)
     origin_id: str = Field(alias="originId", min_length=1, max_length=100)
     destination_id: str = Field(alias="destinationId", min_length=1, max_length=100)
     travel_date: date = Field(alias="travelDate")
@@ -73,6 +75,7 @@ class CheckResult(ApiModel):
     available_seats: int = Field(alias="availableSeats", ge=0)
     matching_trains: list[MatchingTrain] = Field(alias="matchingTrains")
     error: str | None = None
+    error_code: str | None = Field(alias="errorCode", default=None)
 
     def api_payload(self) -> dict[str, object]:
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
@@ -86,6 +89,7 @@ class SessionRecord(ApiModel):
         pattern=r"^[a-f0-9]{64}$",
     )
     version: int = Field(ge=1)
+    status: Literal["connected", "reauth_required"] = "connected"
     updated_at: str | None = Field(alias="updatedAt", default=None)
 
 
@@ -94,6 +98,7 @@ class SessionEnvelope(ApiModel):
 
 
 class SessionSaveRequest(ApiModel):
+    owner_email: str = Field(alias="ownerEmail", min_length=3, max_length=320)
     encrypted_state: str = Field(alias="encryptedState", min_length=100)
     bootstrap_fingerprint: str = Field(
         alias="bootstrapFingerprint",

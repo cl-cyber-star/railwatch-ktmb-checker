@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Railwatch Session Connector</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark">R</span>
+        <div>
+          <strong>Railwatch</strong>
+          <small>KTMB session connector</small>
+        </div>
+      </header>
+
+      <section class="intro">
+        <span class="secure-pill">Password-free connection</span>
+        <h1>Connect the KTMB account signed in on this browser.</h1>
+        <p>
+          Your password stays on KTMB. Railwatch receives only the browser
+          session required to check journeys for your account.
+        </p>
+      </section>
+
+      <button id="open-ktmb" class="secondary" type="button">
+        1. Open official KTMB login
+      </button>
+
+      <label for="link-code">2. Railwatch one-use code</label>
+      <input
+        id="link-code"
+        inputmode="text"
+        autocomplete="off"
+        maxlength="32"
+        placeholder="Paste the 32-character code"
+        aria-describedby="code-help"
+      />
+      <small id="code-help" class="help">
+        Generate this code from your signed-in Railwatch dashboard.
+      </small>
+
+      <button id="connect" class="primary" type="button">
+        Connect this KTMB session
+      </button>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <footer>
+        The connector reads only cookies and site storage belonging to
+        <code>online.ktmb.com.my</code>.
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

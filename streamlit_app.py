@@ -188,15 +188,13 @@ def _render_header() -> None:
 
 def _render_metrics(snapshot: DashboardSnapshot) -> None:
     nearest = next_travel_date(snapshot.monitors, today=date.today())
-    session_label = (
-        f"{snapshot.session_source.title()} · v{snapshot.session_version}"
-        if snapshot.session_version is not None
-        else snapshot.session_source.title()
-    )
+    session_label = f"{snapshot.connected_accounts} connected"
+    if snapshot.reconnect_accounts:
+        session_label += f" · {snapshot.reconnect_accounts} reconnect"
     first, second, third = st.columns(3)
     first.metric("Active monitors", len(snapshot.monitors))
     second.metric("Next journey", nearest.strftime("%d %b") if nearest else "None")
-    third.metric("KTMB session", session_label)
+    third.metric("KTMB accounts", session_label)
 
 
 def _render_sidebar(settings: Settings) -> None:

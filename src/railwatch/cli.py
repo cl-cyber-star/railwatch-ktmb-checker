@@ -13,7 +13,6 @@ from railwatch.capture import capture_session
 from railwatch.config import Settings
 from railwatch.errors import RailwatchError
 from railwatch.service import run_checker
-from railwatch.session import decode_storage_state
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,8 +53,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         settings = Settings()  # type: ignore[call-arg]  # values come from the environment
         if args.command == "doctor":
-            decode_storage_state(settings.ktmb_storage_state_b64.get_secret_value())
-            logging.getLogger(__name__).info("Configuration and KTMB session seed are valid.")
+            logging.getLogger(__name__).info(
+                "Configuration is valid; KTMB sessions are supplied per Railwatch user."
+            )
             return
 
         asyncio.run(run_checker(settings))

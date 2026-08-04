@@ -7,7 +7,14 @@ import re
 from datetime import date
 from urllib.parse import parse_qs, urlparse
 
-from playwright.async_api import BrowserContext, Page
+from playwright.async_api import (
+    BrowserContext,
+    Locator,
+    Page,
+)
+from playwright.async_api import (
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from railwatch.errors import SessionRejectedError
 from railwatch.models import CheckResult, MatchingTrain, Monitor, in_time_window
@@ -104,10 +111,14 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
         )
 
         await page.locator("#btnSubmit").click()
-        await page.wait_for_url(TRIP_URL_PATTERN, timeout=45_000)
+        try:
+            await page.wait_for_url(TRIP_URL_PATTERN, timeout=45_000)
+        except PlaywrightTimeoutError:
+            await assert_authenticated(page)
+            raise
         await page.wait_for_selector("tr", timeout=30_000)
 
-        rows = page.locator("tbody tr").filter(has_text="Pick Seats")
+        rows = page.locator("tbody tr:visible").filter(has_text="Pick Seats")
         matching_trains: list[MatchingTrain] = []
         for index in range(await rows.count()):
             row = rows.nth(index)
@@ -117,8 +128,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
             if not in_time_window(departure, monitor.start_time, monitor.end_time):
                 continue
 
-            await row.get_by_text("Pick Seats", exact=True).click()
-            await page.wait_for_selector("#seatSelect.show img", timeout=30_000)
+            await _open_seat_modal(page, row)
             ordinary_seats = await _count_ordinary_seats(page)
 
             if ordinary_seats:
@@ -130,8 +140,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
                     )
                 )
 
-            await page.locator("#seatSelect button.close").click()
-            await page.wait_for_selector("#seatSelect", state="hidden")
+            await _close_seat_modal(page)
 
         return CheckResult(
             monitorId=monitor.id,
@@ -149,3 +158,31 @@ async def _count_ordinary_seats(page: Page) -> int:
         if seat_is_ordinary(await seats.nth(index).get_attribute("src"), base_url=page.url):
             count += 1
     return count
+
+
+async def _open_seat_modal(page: Page, row: Locator) -> None:
+    """Open one visible seat map with a DOM-click fallback for KTMB overlays."""
+    buttons = row.locator(
+        "a.btn-seat-layout:visible, button.btn-seat-layout:visible, a:visible, button:visible"
+    ).filter(has_text=re.compile(r"^\s*Pick Seats\s*$", re.IGNORECASE))
+    button = buttons.first
+    if await buttons.count() == 0:
+        raise PlaywrightTimeoutError("No visible Pick Seats control was found.")
+
+    await button.scroll_into_view_if_needed(timeout=10_000)
+    try:
+        await button.click(timeout=10_000)
+    except PlaywrightTimeoutError:
+        LOGGER.warning("Normal Pick Seats click timed out; using a DOM click fallback.")
+        await button.evaluate("(element) => element.click()")
+
+    await page.locator("#seatSelect").wait_for(state="visible", timeout=15_000)
+    await page.wait_for_selector("#seatSelect.show img", timeout=15_000)
+
+
+async def _close_seat_modal(page: Page) -> None:
+    close_button = page.locator(
+        "#seatSelect button.close:visible, #seatSelect [data-dismiss='modal']:visible"
+    ).first
+    await close_button.click(timeout=10_000)
+    await page.locator("#seatSelect").wait_for(state="hidden", timeout=10_000)
