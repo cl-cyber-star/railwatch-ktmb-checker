@@ -6,27 +6,21 @@ import pytest
 from railwatch.api import RailwatchApi
 from railwatch.config import Settings
 from railwatch.models import CheckResult
-from railwatch.session import (
-    encode_storage_state,
-    encrypt_storage_state,
-    storage_state_fingerprint,
-)
+from railwatch.session import encrypt_storage_state, storage_state_fingerprint
 
 
-def make_settings(seed: str) -> Settings:
+def make_settings() -> Settings:
     return Settings.model_validate(
         {
             "RAILWATCH_API_URL": "https://railwatch.example",
             "RAILWATCH_CHECKER_SECRET": "checker-secret",
             "OAI_SITES_AUTHORIZATION": "sites-secret",
-            "KTMB_STORAGE_STATE_B64": seed,
         }
     )
 
 
 @pytest.mark.asyncio
 async def test_api_preserves_monitor_and_result_contract() -> None:
-    seed = encode_storage_state({"cookies": [], "origins": []})
     seen_result: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -39,6 +33,7 @@ async def test_api_preserves_monitor_and_result_contract() -> None:
                     "monitors": [
                         {
                             "id": 1,
+                            "ownerEmail": "owner@example.com",
                             "originId": "100",
                             "destinationId": "200",
                             "travelDate": "2026-08-01",
@@ -53,13 +48,14 @@ async def test_api_preserves_monitor_and_result_contract() -> None:
             return httpx.Response(204)
         raise AssertionError(f"Unexpected request: {request.method} {request.url.path}")
 
+    settings = make_settings()
     client = httpx.AsyncClient(
         base_url="https://railwatch.example",
-        headers=make_settings(seed).api_headers,
+        headers=settings.api_headers,
         transport=httpx.MockTransport(handler),
     )
     async with client:
-        api = RailwatchApi(make_settings(seed), client=client)
+        api = RailwatchApi(settings, client=client)
         monitors = await api.get_monitors()
         await api.post_result(
             CheckResult(
@@ -69,7 +65,7 @@ async def test_api_preserves_monitor_and_result_contract() -> None:
             )
         )
 
-    assert monitors[0].origin_id == "100"
+    assert monitors[0].owner_email == "owner@example.com"
     assert seen_result == {
         "monitorId": 1,
         "availableSeats": 0,
@@ -78,16 +74,23 @@ async def test_api_preserves_monitor_and_result_contract() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_rotation_uses_versioned_contract() -> None:
-    initial_state = {"cookies": [], "origins": []}
-    refreshed = {"cookies": [{"name": "session", "value": "new"}], "origins": []}
-    seed = encode_storage_state(initial_state)
-    fingerprint = storage_state_fingerprint(initial_state)
+async def test_per_user_session_load_and_save_contract() -> None:
+    initial_state = {
+        "cookies": [{"name": "session", "value": "old"}],
+        "origins": [],
+    }
+    refreshed = {
+        "cookies": [{"name": "session", "value": "new"}],
+        "origins": [],
+    }
     encrypted = encrypt_storage_state(initial_state, "checker-secret")
+    fingerprint = storage_state_fingerprint(initial_state)
     seen_save: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/checker/session"
         if request.method == "GET":
+            assert request.url.params["ownerEmail"] == "owner@example.com"
             return httpx.Response(
                 200,
                 json={
@@ -95,14 +98,14 @@ async def test_session_rotation_uses_versioned_contract() -> None:
                         "encryptedState": encrypted,
                         "bootstrapFingerprint": fingerprint,
                         "version": 7,
+                        "status": "connected",
                     }
                 },
             )
-        assert request.method == "PUT"
         seen_save.update(json.loads(request.content))
         return httpx.Response(200, json={"version": 8})
 
-    settings = make_settings(seed)
+    settings = make_settings()
     client = httpx.AsyncClient(
         base_url=settings.api_base_url,
         headers=settings.api_headers,
@@ -110,88 +113,68 @@ async def test_session_rotation_uses_versioned_contract() -> None:
     )
     async with client:
         api = RailwatchApi(settings, client=client)
-        loaded = await api.load_session(seed)
+        sessions = await api.get_sessions({"owner@example.com"})
+        loaded = sessions["owner@example.com"]
         version = await api.save_session(
+            loaded.owner_email,
             refreshed,
             expected_version=loaded.version,
-            bootstrap_fingerprint=loaded.bootstrap_fingerprint,
         )
 
-    assert loaded.source == "server"
+    assert loaded.storage_state == initial_state
     assert loaded.version == 7
     assert version == 8
-    assert seen_save["bootstrapFingerprint"] == fingerprint
+    assert seen_save["ownerEmail"] == "owner@example.com"
     assert seen_save["expectedVersion"] == 7
+    assert seen_save["bootstrapFingerprint"] == storage_state_fingerprint(refreshed)
     assert isinstance(seen_save["encryptedState"], str)
 
 
 @pytest.mark.asyncio
-async def test_new_bootstrap_seed_replaces_stored_session() -> None:
-    old_state = {"cookies": [{"name": "session", "value": "old"}], "origins": []}
-    new_state = {"cookies": [{"name": "session", "value": "new"}], "origins": []}
-    seed = encode_storage_state(new_state)
-    encrypted = encrypt_storage_state(old_state, "checker-secret")
-
-    client = httpx.AsyncClient(
-        base_url="https://railwatch.example",
-        headers=make_settings(seed).api_headers,
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(
-                200,
-                json={
-                    "session": {
-                        "encryptedState": encrypted,
-                        "bootstrapFingerprint": storage_state_fingerprint(old_state),
-                        "version": 7,
-                    }
-                },
-            )
-        ),
-    )
-    async with client:
-        loaded = await RailwatchApi(make_settings(seed), client=client).load_session(seed)
-
-    assert loaded.source == "secret"
-    assert loaded.version == 7
-    assert loaded.storage_state == new_state
-    assert loaded.bootstrap_fingerprint == storage_state_fingerprint(new_state)
-
-
-@pytest.mark.asyncio
-async def test_missing_session_endpoint_falls_back_to_secret() -> None:
-    seed = encode_storage_state({"cookies": [], "origins": []})
-    settings = make_settings(seed)
+async def test_session_conflict_does_not_overwrite_newer_user_state() -> None:
+    settings = make_settings()
     client = httpx.AsyncClient(
         base_url=settings.api_base_url,
         headers=settings.api_headers,
-        transport=httpx.MockTransport(lambda _: httpx.Response(404)),
+        transport=httpx.MockTransport(lambda _: httpx.Response(409)),
     )
     async with client:
-        api = RailwatchApi(settings, client=client)
-        loaded = await api.load_session(seed)
-        saved = await api.save_session(
-            loaded.storage_state,
-            expected_version=None,
-            bootstrap_fingerprint=loaded.bootstrap_fingerprint,
+        version = await RailwatchApi(settings, client=client).save_session(
+            "owner@example.com",
+            {"cookies": [], "origins": []},
+            expected_version=4,
         )
 
-    assert loaded.source == "secret"
-    assert saved is None
+    assert version is None
 
 
 @pytest.mark.asyncio
-async def test_empty_session_envelope_falls_back_to_secret() -> None:
-    state = {"cookies": [], "origins": []}
-    seed = encode_storage_state(state)
-    settings = make_settings(seed)
+async def test_corrupt_user_session_isolated_for_reconnect() -> None:
+    fingerprint = "0" * 64
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "session": {
+                    "encryptedState": "x" * 120,
+                    "bootstrapFingerprint": fingerprint,
+                    "version": 2,
+                    "status": "connected",
+                }
+            },
+        )
+
+    settings = make_settings()
     client = httpx.AsyncClient(
         base_url=settings.api_base_url,
         headers=settings.api_headers,
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"session": None})),
+        transport=httpx.MockTransport(handler),
     )
     async with client:
-        loaded = await RailwatchApi(settings, client=client).load_session(seed)
+        sessions = await RailwatchApi(settings, client=client).get_sessions({"owner@example.com"})
 
-    assert loaded.source == "secret"
-    assert loaded.version is None
-    assert loaded.storage_state == state
+    session = sessions["owner@example.com"]
+    assert session.storage_state is None
+    assert session.status == "reauth_required"
+    assert session.error == "The stored KTMB session could not be decrypted."

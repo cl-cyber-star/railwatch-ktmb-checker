@@ -22,13 +22,14 @@ SESSION_KEY_PREFIX = "railwatch-ktmb-session-v1:"
 
 @dataclass(frozen=True, slots=True)
 class SessionMaterial:
-    """A decoded browser session and its server-side version."""
+    """One Railwatch user's decoded browser session and server-side version."""
 
-    storage_state: StorageState
-    encoded: str
-    version: int | None
-    source: Literal["server", "secret"]
+    owner_email: str
+    storage_state: StorageState | None
+    version: int
+    status: Literal["connected", "reauth_required"]
     bootstrap_fingerprint: str
+    error: str | None = None
 
 
 def _validate_storage_state(value: object) -> StorageState:

@@ -1,0 +1,176 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  background: #090b11;
+  color: #f7f8fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  margin: 0;
+  background:
+    radial-gradient(circle at 85% -8%, rgba(83, 111, 255, 0.2), transparent 33%),
+    #090b11;
+}
+
+main {
+  padding: 20px;
+}
+
+header {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding-bottom: 17px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #7c96ff, #536fff);
+  box-shadow: 0 8px 24px rgba(80, 110, 255, 0.32);
+  font-weight: 900;
+}
+
+header strong,
+header small {
+  display: block;
+}
+
+header strong {
+  font-size: 14px;
+}
+
+header small {
+  margin-top: 2px;
+  color: #8f98a8;
+  font-size: 10px;
+}
+
+.intro {
+  padding: 19px 0 16px;
+}
+
+.secure-pill {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(74, 222, 184, 0.09);
+  color: #77e8ca;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 11px 0 7px;
+  font-size: 21px;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+p {
+  margin: 0;
+  color: #929bab;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+label {
+  display: block;
+  margin: 17px 0 7px;
+  color: #dce2ed;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  padding: 13px 12px;
+  border: 1px solid rgba(110, 139, 255, 0.24);
+  border-radius: 11px;
+  outline: 0;
+  background: #151a24;
+  color: #eff2ff;
+  font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.05em;
+}
+
+input:focus {
+  border-color: #6e8bff;
+  box-shadow: 0 0 0 3px rgba(110, 139, 255, 0.12);
+}
+
+.help {
+  display: block;
+  margin-top: 6px;
+  color: #7f8999;
+  font-size: 9px;
+}
+
+button {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 11px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.primary {
+  margin-top: 17px;
+  background: linear-gradient(145deg, #7c96ff, #536fff);
+  color: white;
+  box-shadow: 0 9px 24px rgba(80, 110, 255, 0.25);
+}
+
+.secondary {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.045);
+  color: #dfe4ed;
+}
+
+.status {
+  min-height: 18px;
+  margin-top: 12px;
+  color: #aab3c2;
+  text-align: center;
+}
+
+.status.success {
+  color: #77e8ca;
+}
+
+.status.error {
+  color: #ff9d9d;
+}
+
+footer {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  color: #747e8e;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+code {
+  color: #9eaeff;
+}

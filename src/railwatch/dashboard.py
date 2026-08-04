@@ -16,16 +16,15 @@ class DashboardSnapshot:
     """Validated data required by the Streamlit operator dashboard."""
 
     monitors: tuple[Monitor, ...]
-    session_source: str
-    session_version: int | None
+    connected_accounts: int
+    reconnect_accounts: int
 
 
 async def load_dashboard_snapshot(settings: Settings) -> DashboardSnapshot:
     """Load current monitors and non-sensitive session metadata."""
-    fallback_encoded = settings.ktmb_storage_state_b64.get_secret_value()
     async with RailwatchApi(settings) as api:
         monitors = await api.get_monitors()
-        session = await api.load_session(fallback_encoded)
+        sessions = await api.get_sessions({monitor.owner_email.casefold() for monitor in monitors})
 
     return DashboardSnapshot(
         monitors=tuple(
@@ -38,8 +37,10 @@ async def load_dashboard_snapshot(settings: Settings) -> DashboardSnapshot:
                 ),
             )
         ),
-        session_source=session.source,
-        session_version=session.version,
+        connected_accounts=sum(session.status == "connected" for session in sessions.values()),
+        reconnect_accounts=sum(
+            session.status == "reauth_required" for session in sessions.values()
+        ),
     )
 
 
