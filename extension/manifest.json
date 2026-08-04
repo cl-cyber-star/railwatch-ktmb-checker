@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Railwatch Session Connector",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Privately connect your signed-in KTMB browser session to your Railwatch account.",
   "permissions": ["cookies", "scripting", "tabs"],
   "host_permissions": [
-    "https://online.ktmb.com.my/*",
+    "https://*.ktmb.com.my/*",
     "https://ktmb-ticket-watch.cheelong99.chatgpt.site/*"
   ],
   "action": {

@@ -106,8 +106,9 @@ async def _process_account(
         except SessionRejectedError as exc:
             await _report_reauth(api, monitors[0], str(exc))
             LOGGER.warning(
-                "%s: KTMB rejected the session; the user was asked to reconnect.",
+                "%s: KTMB rejected the session (%s); the user was asked to reconnect.",
                 account_label,
+                _safe_error_message(exc),
             )
             return []
 
@@ -116,8 +117,9 @@ async def _process_account(
         except SessionRejectedError as exc:
             await _report_reauth(api, monitors[0], str(exc))
             LOGGER.warning(
-                "%s: KTMB ended the session during a check; remaining monitors were skipped.",
+                "%s: KTMB ended the session during a check (%s); remaining monitors were skipped.",
                 account_label,
+                _safe_error_message(exc),
             )
             return []
 
