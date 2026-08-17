@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from railwatch.ktmb import format_ktmb_date, seat_is_ordinary
+from railwatch.ktmb import format_ktmb_date, seat_is_ordinary, seat_number_from_metadata
 
 
 @pytest.mark.parametrize(
@@ -22,3 +22,17 @@ def test_ordinary_seat_filter(src: str | None, expected: bool) -> None:
 
 def test_ktmb_date_format_is_locale_independent() -> None:
     assert format_ktmb_date(date(2026, 8, 3)) == "03 Aug 2026"
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({"seatNo": "7A", "seatType": "Standard"}, "7A"),
+        ({"seatData": '{"SeatNumber":"B12","SeatType":"Standard"}'}, "B12"),
+        ({"ariaLabel": "Seat 9C"}, "9C"),
+        ({"seatData": {"SeatName": "14"}}, "14"),
+        ({"seatData": "Standard", "title": "Available"}, None),
+    ],
+)
+def test_seat_number_from_metadata(metadata: object, expected: str | None) -> None:
+    assert seat_number_from_metadata(metadata) == expected

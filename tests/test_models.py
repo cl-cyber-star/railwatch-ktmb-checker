@@ -73,3 +73,27 @@ def test_result_preserves_existing_api_shape() -> None:
         "availableSeats": 3,
         "matchingTrains": [{"service": "9321", "departure": "09:30", "ordinarySeats": 3}],
     }
+
+
+def test_result_includes_captured_ordinary_seat_numbers() -> None:
+    result = CheckResult(
+        monitorId=42,
+        availableSeats=2,
+        matchingTrains=[
+            MatchingTrain(
+                service="9321",
+                departure="09:30",
+                ordinarySeats=2,
+                seatNumbers=["7A", "7B"],
+            )
+        ],
+    )
+
+    assert result.api_payload()["matchingTrains"] == [
+        {
+            "service": "9321",
+            "departure": "09:30",
+            "ordinarySeats": 2,
+            "seatNumbers": ["7A", "7B"],
+        }
+    ]
