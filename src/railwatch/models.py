@@ -68,6 +68,7 @@ class MatchingTrain(ApiModel):
     service: str
     departure: str
     ordinary_seats: int = Field(alias="ordinarySeats", ge=0)
+    seat_numbers: list[str] = Field(alias="seatNumbers", default_factory=list)
 
 
 class CheckResult(ApiModel):
@@ -78,7 +79,12 @@ class CheckResult(ApiModel):
     error_code: str | None = Field(alias="errorCode", default=None)
 
     def api_payload(self) -> dict[str, object]:
-        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        return self.model_dump(
+            by_alias=True,
+            exclude_none=True,
+            exclude_defaults=True,
+            mode="json",
+        )
 
 
 class SessionRecord(ApiModel):

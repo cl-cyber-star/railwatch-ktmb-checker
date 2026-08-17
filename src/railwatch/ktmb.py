@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 import re
 from datetime import date
@@ -24,6 +26,20 @@ KTMB_HOME_URL = "https://online.ktmb.com.my/"
 LOGIN_URL_PATTERN = re.compile(r"/Account/Login(?:$|[?#])", re.IGNORECASE)
 TRIP_URL_PATTERN = re.compile(r"/Trip(?:$|\?)")
 STANDARD_SEAT_PATTERN = re.compile(r"^(Stan|Std)", re.IGNORECASE)
+SEAT_NUMBER_PATTERN = re.compile(r"^[A-Z]{0,2}\d{1,3}[A-Z]{0,2}$", re.IGNORECASE)
+LABELED_SEAT_NUMBER_PATTERN = re.compile(
+    r"\bseat(?:\s*(?:no|number|name|label|code))?\s*[:#-]?\s*"
+    r"([A-Z]{0,2}\d{1,3}[A-Z]{0,2})\b",
+    re.IGNORECASE,
+)
+SEAT_NUMBER_KEYS = {
+    "seat",
+    "seatcode",
+    "seatlabel",
+    "seatname",
+    "seatno",
+    "seatnumber",
+}
 MONTHS = (
     "Jan",
     "Feb",
@@ -52,6 +68,52 @@ def seat_is_ordinary(src: str | None, *, base_url: str = KTMB_HOME_URL) -> bool:
     parsed = urlparse(src if "://" in src else f"{base_url.rstrip('/')}/{src.lstrip('/')}")
     seat_id = parse_qs(parsed.query).get("id", [""])[0]
     return bool(STANDARD_SEAT_PATTERN.search(seat_id)) and "OKU" not in seat_id.upper()
+
+
+def seat_number_from_metadata(metadata: object) -> str | None:
+    """Extract a displayed seat number from KTMB's seat element metadata."""
+    if isinstance(metadata, dict):
+        prioritized: list[object] = []
+        fallback: list[object] = []
+        for key, value in metadata.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+            (prioritized if normalized_key in SEAT_NUMBER_KEYS else fallback).append(value)
+        for value in prioritized + fallback:
+            seat_number = seat_number_from_metadata(value)
+            if seat_number:
+                return seat_number
+        return None
+
+    if isinstance(metadata, (list, tuple)):
+        for value in metadata:
+            seat_number = seat_number_from_metadata(value)
+            if seat_number:
+                return seat_number
+        return None
+
+    if not isinstance(metadata, (str, int)):
+        return None
+
+    value = html.unescape(str(metadata)).strip()
+    if not value:
+        return None
+
+    if value[0] in "[{":
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            decoded = None
+        if decoded is not None:
+            seat_number = seat_number_from_metadata(decoded)
+            if seat_number:
+                return seat_number
+
+    compact = re.sub(r"\s+", "", value)
+    if SEAT_NUMBER_PATTERN.fullmatch(compact):
+        return compact.upper()
+
+    labelled = LABELED_SEAT_NUMBER_PATTERN.search(value)
+    return labelled.group(1).upper() if labelled else None
 
 
 async def assert_authenticated(page: Page) -> None:
@@ -129,7 +191,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
                 continue
 
             await _open_seat_modal(page, row)
-            ordinary_seats = await _count_ordinary_seats(page)
+            ordinary_seats, seat_numbers = await _ordinary_seat_availability(page)
 
             if ordinary_seats:
                 matching_trains.append(
@@ -137,6 +199,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
                         service=service,
                         departure=departure,
                         ordinarySeats=ordinary_seats,
+                        seatNumbers=seat_numbers,
                     )
                 )
 
@@ -151,13 +214,29 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
         await page.close()
 
 
-async def _count_ordinary_seats(page: Page) -> int:
+async def _ordinary_seat_availability(page: Page) -> tuple[int, list[str]]:
     seats = page.locator("#seatSelect img.selectable-icon[data-seat-data]")
     count = 0
+    seat_numbers: list[str] = []
     for index in range(await seats.count()):
-        if seat_is_ordinary(await seats.nth(index).get_attribute("src"), base_url=page.url):
+        seat = seats.nth(index)
+        if seat_is_ordinary(await seat.get_attribute("src"), base_url=page.url):
             count += 1
-    return count
+            metadata = await seat.evaluate(
+                """
+                (element) => ({
+                  ...element.dataset,
+                  ariaLabel: element.getAttribute("aria-label"),
+                  alt: element.getAttribute("alt"),
+                  title: element.getAttribute("title"),
+                  parentText: element.parentElement?.textContent?.trim() ?? "",
+                })
+                """
+            )
+            seat_number = seat_number_from_metadata(metadata)
+            if seat_number and seat_number not in seat_numbers:
+                seat_numbers.append(seat_number)
+    return count, seat_numbers
 
 
 async def _open_seat_modal(page: Page, row: Locator) -> None:
