@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from railwatch.models import CheckResult, MatchingTrain, Monitor, in_time_window
+from railwatch.models import CheckResult, MatchingTrain, Monitor, SeatDetail, in_time_window
 
 
 def test_monitor_accepts_existing_camel_case_payload() -> None:
@@ -85,6 +85,10 @@ def test_result_includes_captured_ordinary_seat_numbers() -> None:
                 departure="09:30",
                 ordinarySeats=2,
                 seatNumbers=["7A", "7B"],
+                seatDetails=[
+                    SeatDetail(coach="A", seatNumber="7A"),
+                    SeatDetail(coach="A", seatNumber="7B"),
+                ],
             )
         ],
     )
@@ -95,5 +99,9 @@ def test_result_includes_captured_ordinary_seat_numbers() -> None:
             "departure": "09:30",
             "ordinarySeats": 2,
             "seatNumbers": ["7A", "7B"],
+            "seatDetails": [
+                {"coach": "A", "seatNumber": "7A"},
+                {"coach": "A", "seatNumber": "7B"},
+            ],
         }
     ]

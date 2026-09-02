@@ -19,7 +19,7 @@ from playwright.async_api import (
 )
 
 from railwatch.errors import SessionRejectedError
-from railwatch.models import CheckResult, MatchingTrain, Monitor, in_time_window
+from railwatch.models import CheckResult, MatchingTrain, Monitor, SeatDetail, in_time_window
 
 LOGGER = logging.getLogger(__name__)
 KTMB_HOME_URL = "https://online.ktmb.com.my/"
@@ -40,6 +40,27 @@ SEAT_NUMBER_KEYS = {
     "seatno",
     "seatnumber",
 }
+COACH_KEYS = {
+    "car",
+    "carriage",
+    "carriagecode",
+    "carriagename",
+    "carriageno",
+    "carriagenumber",
+    "coach",
+    "coachcode",
+    "coachid",
+    "coachlabel",
+    "coachname",
+    "coachno",
+    "coachnumber",
+}
+LABELED_COACH_PATTERN = re.compile(
+    r"\b(?:coach|carriage|car)\s*(?:no|number|name|label|code)?\s*[:#-]?\s*"
+    r"([A-Z0-9][A-Z0-9_-]{0,11})\b",
+    re.IGNORECASE,
+)
+COACH_VALUE_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,11}$", re.IGNORECASE)
 MONTHS = (
     "Jan",
     "Feb",
@@ -70,50 +91,93 @@ def seat_is_ordinary(src: str | None, *, base_url: str = KTMB_HOME_URL) -> bool:
     return bool(STANDARD_SEAT_PATTERN.search(seat_id)) and "OKU" not in seat_id.upper()
 
 
-def seat_number_from_metadata(metadata: object) -> str | None:
-    """Extract a displayed seat number from KTMB's seat element metadata."""
+def _normalized_metadata_key(key: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).casefold())
+
+
+def _decoded_metadata(metadata: object) -> object:
+    if not isinstance(metadata, str):
+        return metadata
+    value = html.unescape(metadata).strip()
+    if value[:1] not in "[{":
+        return metadata
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return metadata
+
+
+def _metadata_values(metadata: object, keys: set[str]) -> list[object]:
+    """Return values for matching keys, including values inside JSON strings."""
+    metadata = _decoded_metadata(metadata)
+    values: list[object] = []
     if isinstance(metadata, dict):
-        prioritized: list[object] = []
-        fallback: list[object] = []
         for key, value in metadata.items():
-            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).casefold())
-            (prioritized if normalized_key in SEAT_NUMBER_KEYS else fallback).append(value)
-        for value in prioritized + fallback:
-            seat_number = seat_number_from_metadata(value)
-            if seat_number:
-                return seat_number
-        return None
-
-    if isinstance(metadata, (list, tuple)):
+            normalized_key = _normalized_metadata_key(key)
+            if normalized_key in keys or (
+                normalized_key.startswith("data") and normalized_key[4:] in keys
+            ):
+                values.append(value)
+            values.extend(_metadata_values(value, keys))
+    elif isinstance(metadata, (list, tuple)):
         for value in metadata:
-            seat_number = seat_number_from_metadata(value)
-            if seat_number:
-                return seat_number
-        return None
+            values.extend(_metadata_values(value, keys))
+    return values
 
-    if not isinstance(metadata, (str, int)):
-        return None
 
-    value = html.unescape(str(metadata)).strip()
-    if not value:
-        return None
+def _metadata_texts(metadata: object) -> list[str]:
+    metadata = _decoded_metadata(metadata)
+    if isinstance(metadata, dict):
+        return [text for value in metadata.values() for text in _metadata_texts(value)]
+    if isinstance(metadata, (list, tuple)):
+        return [text for value in metadata for text in _metadata_texts(value)]
+    if isinstance(metadata, (str, int)):
+        value = html.unescape(str(metadata)).strip()
+        return [value] if value else []
+    return []
 
-    if value[0] in "[{":
-        try:
-            decoded = json.loads(value)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            decoded = None
-        if decoded is not None:
-            seat_number = seat_number_from_metadata(decoded)
-            if seat_number:
-                return seat_number
 
-    compact = re.sub(r"\s+", "", value)
-    if SEAT_NUMBER_PATTERN.fullmatch(compact):
-        return compact.upper()
+def _seat_number_from_value(value: object) -> str | None:
+    for text in _metadata_texts(value):
+        compact = re.sub(r"\s+", "", text)
+        if SEAT_NUMBER_PATTERN.fullmatch(compact):
+            return compact.upper()
+        labelled = LABELED_SEAT_NUMBER_PATTERN.search(text)
+        if labelled:
+            return labelled.group(1).upper()
+    return None
 
-    labelled = LABELED_SEAT_NUMBER_PATTERN.search(value)
-    return labelled.group(1).upper() if labelled else None
+
+def seat_number_from_metadata(metadata: object) -> str | None:
+    """Extract a displayed seat number without mistaking a coach number for it."""
+    for value in _metadata_values(metadata, SEAT_NUMBER_KEYS):
+        seat_number = _seat_number_from_value(value)
+        if seat_number:
+            return seat_number
+
+    for text in _metadata_texts(metadata):
+        labelled = LABELED_SEAT_NUMBER_PATTERN.search(text)
+        if labelled:
+            return labelled.group(1).upper()
+    return None
+
+
+def coach_from_metadata(metadata: object) -> str | None:
+    """Extract the coach/carriage label associated with one selectable seat."""
+    for value in _metadata_values(metadata, COACH_KEYS):
+        for text in _metadata_texts(value):
+            labelled = LABELED_COACH_PATTERN.search(text)
+            if labelled:
+                return labelled.group(1).upper()
+            compact = re.sub(r"\s+", "", text)
+            if COACH_VALUE_PATTERN.fullmatch(compact):
+                return compact.upper()
+
+    for text in _metadata_texts(metadata):
+        labelled = LABELED_COACH_PATTERN.search(text)
+        if labelled:
+            return labelled.group(1).upper()
+    return None
 
 
 async def assert_authenticated(page: Page) -> None:
@@ -191,7 +255,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
                 continue
 
             await _open_seat_modal(page, row)
-            ordinary_seats, seat_numbers = await _ordinary_seat_availability(page)
+            ordinary_seats, seat_numbers, seat_details = await _ordinary_seat_availability(page)
 
             if ordinary_seats:
                 matching_trains.append(
@@ -200,6 +264,7 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
                         departure=departure,
                         ordinarySeats=ordinary_seats,
                         seatNumbers=seat_numbers,
+                        seatDetails=seat_details,
                     )
                 )
 
@@ -214,29 +279,71 @@ async def check_monitor(context: BrowserContext, monitor: Monitor) -> CheckResul
         await page.close()
 
 
-async def _ordinary_seat_availability(page: Page) -> tuple[int, list[str]]:
+async def _ordinary_seat_availability(
+    page: Page,
+) -> tuple[int, list[str], list[SeatDetail]]:
     seats = page.locator("#seatSelect img.selectable-icon[data-seat-data]")
     count = 0
     seat_numbers: list[str] = []
+    seat_details: list[SeatDetail] = []
+    seen_details: set[tuple[str | None, str | None]] = set()
     for index in range(await seats.count()):
         seat = seats.nth(index)
         if seat_is_ordinary(await seat.get_attribute("src"), base_url=page.url):
             count += 1
             metadata = await seat.evaluate(
-                """
-                (element) => ({
-                  ...element.dataset,
-                  ariaLabel: element.getAttribute("aria-label"),
-                  alt: element.getAttribute("alt"),
-                  title: element.getAttribute("title"),
-                  parentText: element.parentElement?.textContent?.trim() ?? "",
-                })
+                r"""
+                (element) => {
+                  const attributes = (node) => Object.fromEntries(
+                    Array.from(node?.attributes ?? []).map((item) => [item.name, item.value])
+                  );
+                  const coachContext = [];
+                  for (
+                    let node = element.parentElement;
+                    node && node.id !== "seatSelect";
+                    node = node.parentElement
+                  ) {
+                    const identity = `${node.id} ${node.className}`;
+                    const data = { ...node.dataset };
+                    const attrs = attributes(node);
+                    const hasCoachMarker = /coach|carriage|(^|[-_\s])car($|[-_\s])/i.test(identity)
+                      || Object.keys({ ...data, ...attrs }).some(
+                        (key) => /coach|carriage|(^|[-_])car($|[-_])/i.test(key)
+                      );
+                    if (hasCoachMarker) {
+                      coachContext.push({
+                        id: node.id,
+                        className: node.className,
+                        dataset: data,
+                        attributes: attrs,
+                        text: node.textContent?.trim() ?? "",
+                      });
+                    }
+                  }
+                  return {
+                    seat: {
+                      dataset: { ...element.dataset },
+                      attributes: attributes(element),
+                      ariaLabel: element.getAttribute("aria-label"),
+                      alt: element.getAttribute("alt"),
+                      title: element.getAttribute("title"),
+                      parentText: element.parentElement?.textContent?.trim() ?? "",
+                    },
+                    coachContext,
+                  };
+                }
                 """
             )
-            seat_number = seat_number_from_metadata(metadata)
-            if seat_number and seat_number not in seat_numbers:
+            seat_metadata = metadata.get("seat", {}) if isinstance(metadata, dict) else metadata
+            seat_number = seat_number_from_metadata(seat_metadata)
+            coach = coach_from_metadata(metadata)
+            if seat_number:
                 seat_numbers.append(seat_number)
-    return count, seat_numbers
+            detail_key = (coach, seat_number)
+            if detail_key != (None, None) and detail_key not in seen_details:
+                seen_details.add(detail_key)
+                seat_details.append(SeatDetail(coach=coach, seatNumber=seat_number))
+    return count, seat_numbers, seat_details
 
 
 async def _open_seat_modal(page: Page, row: Locator) -> None:

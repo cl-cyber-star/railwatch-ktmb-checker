@@ -64,11 +64,17 @@ class MonitorEnvelope(ApiModel):
     monitors: list[Monitor] = Field(default_factory=list)
 
 
+class SeatDetail(ApiModel):
+    coach: str | None = None
+    seat_number: str | None = Field(alias="seatNumber", default=None)
+
+
 class MatchingTrain(ApiModel):
     service: str
     departure: str
     ordinary_seats: int = Field(alias="ordinarySeats", ge=0)
     seat_numbers: list[str] = Field(alias="seatNumbers", default_factory=list)
+    seat_details: list[SeatDetail] = Field(alias="seatDetails", default_factory=list)
 
 
 class CheckResult(ApiModel):
