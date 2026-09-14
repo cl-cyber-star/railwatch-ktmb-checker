@@ -8,8 +8,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: railwatch-ktmb-checker
+  group: railwatch-ktmb-checker-serial
   cancel-in-progress: false
+  queue: max
 
 jobs:
   check:
